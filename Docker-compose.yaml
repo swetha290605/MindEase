@@ -1,0 +1,75 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: mindease_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mindease
+      POSTGRES_PASSWORD: mindease_dev
+      POSTGRES_DB: mindease
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindease"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: mindease_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: mindease_backend
+    restart: unless-stopped
+    command: npm run dev
+    environment:
+      DATABASE_URL: postgresql://mindease:mindease_dev@postgres:5432/mindease
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: local_dev_secret_change_in_prod
+      PORT: 3001
+      NODE_ENV: development
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/prisma:/app/prisma
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend-web:
+    image: node:20-alpine
+    container_name: mindease_frontend_web
+    working_dir: /app
+    command: sh -c "npm install && npm start"
+    environment:
+      REACT_APP_API_URL: http://localhost:3001
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend-web:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
